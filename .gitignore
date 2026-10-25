@@ -1,0 +1,14 @@
+# build output
+object/
+a.out
+*.exe
+*.o
+*.d
+
+# runtime data
+data/
+
+# editor / OS
+compile_flags.txt
+.vscode/
+.DS_Store
