@@ -21,6 +21,28 @@ make            # optimised build -> ./a.out
 ./a.out         # first run loads a demo campus; later runs reload data/
 ```
 
+## SETUP START (LINUX)
+```sh
+ls -la
+rm -rf cc
+sudo apt update
+sudo apt install build-essential
+make
+./a.out
+```
+
+## WSL SETUP START
+```sh
+bash
+ls -la
+rm -rf cc
+sudo apt update
+sudo apt install build-essential
+make
+./a.out
+```
+
+
 Inside the program, type `help`. Try `monitor` (live view), `urgent`, `assign Shreya 3`, `route Library Orion`, `water 1014`, then `quit`.
 
 Requirements: a C11 compiler (gcc or clang) and a POSIX system (Linux, macOS, or WSL). No external libraries are needed.
