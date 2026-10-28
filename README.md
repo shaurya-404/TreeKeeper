@@ -2,7 +2,7 @@
 
 **A Data-Driven Afforestation and Maintenance Scheduling System**
 Team **PROTOCOL 0** · CSLR31 Data Structures Laboratory · NIT Tiruchirappalli
-Aligned with **UN SDG 15 – Life on Land**
+SDG 15 – Life on Land
 
 | Member | Reg. No. |
 |---|---|
@@ -10,16 +10,16 @@ Aligned with **UN SDG 15 – Life on Land**
 | Shravanth S Sennimalai | 106125111 |
 | Shreya Ashok Mhetre    | 106125113 |
 
-TreeKeeper tracks planted saplings and works out which ones need water first. It hands those trees to volunteers and plans the shortest walk between them. A background thread runs the simulated clock, so water levels keep dropping while the program is open. All state is saved to CSV files on exit and loaded again on the next start.
+TreeKeeper keeps track of planted saplings and tells volunteers which trees need water first. It also finds the shortest walking route between zones of the campus. A timer runs in the background and keeps reducing the water level of every tree. All data is saved to files when the program exits and loaded back the next time.
 
----
-
-## Quick start
+## How to run
 
 ```sh
-make            # optimised build -> ./a.out
-./a.out         # first run loads a demo campus; later runs reload data/
+make
+./a.out
 ```
+
+The first time, the program loads a sample campus (10 zones, 16 trees, 3 volunteers). After that, it loads whatever was saved in the `data/` folder.
 
 ## SETUP START (LINUX)
 ```sh
@@ -42,93 +42,82 @@ make
 ./a.out
 ```
 
-
-Inside the program, type `help`. Try `monitor` (live view), `urgent`, `assign Shreya 3`, `route Library Orion`, `water 1014`, then `quit`.
-
-Requirements: a C11 compiler (gcc or clang) and a POSIX system (Linux, macOS, or WSL). No external libraries are needed.
-
-## Directory layout
+## Folder structure
 
 ```
-.
-├── Makefile            build system (a.out is produced here)
-├── README.md           this file
-├── include/            all .h files (module interfaces)
-├── Source/             all .c files (module implementations)
-├── object/             all .o files (created by make, per build mode)
-├── Tests/              unit tests + scripted CLI demo
-├── Document/           user manual
-├── Video/              project experience video (.mp4)
-└── data/               saved state (created on first exit)
+Makefile          build file (a.out is created here)
+README.md
+include/          header files (.h)
+Source/           source files (.c)
+object/           object files (.o), created by make
+Tests/            test program and sample input
+Document/         user manual
+Video/            project video
+data/             saved data (created when the program exits)
 ```
 
-## Modules
-
-| Module | Files | Responsibility |
-|---|---|---|
-| Common | `tk_common.h/.c` | Status codes, overflow-safe allocation, strict number parsing, name validation |
-| String builder | `strbuf.h/.c` | Growable string used to build each screen before printing it in one go |
-| Hash map | `hashmap.h/.c` | Open addressing, linear probing, tombstones, resize at 70% load |
-| Min-heap | `minheap.h/.c` | Indexed binary heap with decrease-key, arbitrary remove, and non-destructive top-k |
-| Graph | `graph.h/.c` | Adjacency list, **Dijkstra**, multi-stop route planning |
-| Registry | `registry.h/.c` | Tree records indexed by hash map + min-heap, guarded by a mutex |
-| Volunteers | `volunteer.h/.c` | Dynamic-array roster and leaderboard |
-| Simulator | `simulator.h/.c` | pthread worker that advances simulated time |
-| Storage | `storage.h/.c` | CSV save/load with atomic replace and row validation |
-| UI / CLI | `ui.h/.c`, `cli.h/.c` | ANSI dashboard, live monitor, command table |
-| Entry | `main.c`, `seed.c` | Option parsing, start-up and shutdown order, demo data |
-
-Every data structure is an **opaque pointer**: the header has only `typedef struct X X;`, and the fields are visible only inside the `.c` file. Every container grows on demand. There are no fixed array limits.
-
-## Data structures and complexity
-
-| Operation | Structure | Cost |
-|---|---|---|
-| Find / update a tree by ID (QR scan) | Hash map | O(1) expected |
-| Plant / water / remove a tree | Hash map + heap | O(log n) |
-| Most urgent tree | Min-heap peek | O(1) |
-| Top-k urgent trees for the dashboard | Heap best-first search | O(k log k), heap unchanged |
-| Assign k trees to a volunteer | k × extract-min | O(k log n) |
-| Shortest path between zones | Dijkstra + indexed heap | O((V+E) log V) |
-| Walking route through k zones | Repeated Dijkstra, nearest stop first | O(k (V+E) log V) |
-| One simulation tick | Linear pass over all trees | O(n), **no heap reordering** |
-
-### Key design decisions (useful for the viva)
-
-1. **The heap key is the time a tree will dry out, not its water level.** Each tree loses water at a constant rate *r*, so it runs dry at `t_dry = now + water / r`. As time passes, water drops but `t_dry` stays the same. The heap never has to be reordered on a tick. Ordering by water alone would also be wrong: a Bamboo at 28% dries out before a Teak at 22% (see the demo output).
-2. **The heap keeps a hash map from ID to array index.** That makes decrease-key and removal O(log n) instead of O(n). Dijkstra uses the same heap.
-3. **Dijkstra uses decrease-key.** Each zone enters the frontier at most once, and its distance is final when it is popped (all weights are > 0).
-4. **The route planner picks the nearest unvisited stop each time.** Visiting several zones in the best possible order is the Travelling Salesman Problem, which is NP-hard. Picking the nearest stop is a standard heuristic. The distances it compares are real shortest paths.
-5. **Thread safety.** Only the registry is shared with the simulation thread, and every registry call locks a mutex. Callers only ever get *copies* of tree data (`TreeInfo`), never pointers into the registry. The simulator never holds its own lock while it takes the registry's, so the two locks cannot deadlock. The worker thread blocks all signals, so Ctrl+C always reaches `main`, which stops the thread, saves, and frees memory.
-6. **Crash-safe saving.** Each CSV file is written to `file.tmp` and then `rename()`d over the old one, which is atomic on POSIX. When loading, bad rows are skipped and counted. If the load fails, the program exits **without** saving, so it cannot overwrite good data.
-
-## Build targets
-
-| Command | Purpose |
+| File | What it does |
 |---|---|
-| `make` | Release build (`-O2`) |
-| `make debug` | `-O0 -g3` build for gdb and Valgrind |
-| `make asan` | AddressSanitizer + UBSan build (best on Linux) |
-| `make test` | Build and run the unit tests |
-| `make smoke` | Run `Tests/demo_script.txt`, then reload the saved state |
-| `make valgrind` | Run the tests and the CLI demo under Valgrind (Linux) |
-| `make leaks` | Same checks with macOS `leaks` |
-| `make clean` / `make distclean` | Remove build output / also remove `data/` |
+| `tree.c` | Tree struct, species list, status of a tree |
+| `hashmap.c` | Hash map (separate chaining) to find a tree by ID |
+| `heap.c` | Min heap to find the most urgent tree |
+| `graph.c` | Campus graph (adjacency list), Dijkstra, route planning |
+| `volunteer.c` | Volunteer list and leaderboard |
+| `simulation.c` | Background timer thread (pthreads) |
+| `fileio.c` | Saving and loading CSV files, sample data |
+| `ui.c` | Dashboard with colours, input functions |
+| `main.c` | Menu |
 
-All code compiles with no warnings under `-Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wstrict-prototypes -Wmissing-prototypes`.
+## Data structures used
+
+**Min heap:** each tree's priority is the number of hours left before it runs out of water (`water / dryRate`). The tree with the smallest value is at the root. Every tree stores its position in the heap (`heapIndex`), so when a tree is watered we can move it to its correct place in O(log n) without searching the whole heap. When the timer reduces all water levels, the heap is rebuilt with `buildHeap` in O(n).
+
+**Hash map:** the key is the tree ID, and collisions are handled with linked lists (separate chaining). When a volunteer scans the QR code, the tree is found in O(1) on average. When the number of trees goes above 75% of the number of buckets, the table doubles in size and every tree is rehashed.
+
+**Graph:** zones are vertices and paths are undirected weighted edges (distance in metres), stored as an adjacency list. Dijkstra's algorithm (array version, O(V²)) finds the shortest path, and the path is printed using the parent array. To assign several trees, the program repeatedly walks to the nearest unvisited zone (greedy approach).
+
+**Dynamic arrays:** the heap array, the zone array and the volunteer list double their size with `realloc` when they are full.
+
+| Operation | Time |
+|---|---|
+| Search tree by ID | O(1) average |
+| Plant / water / remove a tree | O(log n) |
+| Get most urgent tree | O(1) peek, O(log n) extract |
+| Timer update | O(n) |
+| Shortest path | O(V²) |
+
+## Threads
+
+`simulation.c` starts a thread with `pthread_create`. Every second it reduces the water level of all trees by `dryRate × speed`. Both the menu and the timer thread use the trees and the heap, so every access is protected with a `pthread_mutex_t`. On exit, `running` is set to 0 and `pthread_join` waits for the thread to finish.
+
+## Saved files
+
+| File | Format |
+|---|---|
+| `settings.csv` | simHours,nextTreeId,nextVolunteerId,speed |
+| `zones.csv` | one zone name per line |
+| `paths.csv` | zoneA,zoneB,distance |
+| `trees.csv` | id,species,zone,water,diseased,assignedTo |
+| `volunteers.csv` | id,name,zone,tasksDone |
+
+Lines that cannot be read (wrong format, zone that does not exist, water outside 0–100) are skipped, and a warning is printed.
 
 ## Testing
 
-* `Tests/test_main.c` holds the unit tests, about 235,000 checks in all. They cover hash map resizing and tombstone churn, heap sort order, decrease/increase-key, `peek_k`, Dijkstra on a known graph (including unreachable zones and removed edges), route planning with duplicate stops, registry urgency ordering, draining over time, assignment, watering and disease, the roster leaderboard, and a full save→load round trip with corrupted rows.
-* `Tests/demo_script.txt` is a scripted session. It mixes valid and invalid commands (unknown species or zone, unreachable zone, missing tree) to show the error handling.
-* Memory: `make leaks` reports **0 leaks** for both the tests and the CLI session. Run `make valgrind` on Linux to get the matching Valgrind report.
+`make test` runs `Tests/test.c` (29 test cases). It covers inserting, searching and deleting in the hash map (including rehashing and duplicate IDs), heap insert/update/remove/extract order, Dijkstra on a small graph (including an unreachable zone and a removed path), and saving data and loading it back.
 
-> Note: on recent macOS versions, Apple's AddressSanitizer runtime can hang during start-up. Use `make leaks` on a Mac and `make asan` / `make valgrind` on Linux.
+`./a.out < Tests/test_input.txt` runs a full session from the menu. It includes wrong inputs such as an unknown species, an unknown zone, a missing tree ID and text instead of a number.
+
+We checked memory with `leaks --atExit` on macOS (0 leaks). On Linux, use `make debug` and then `valgrind --leak-check=full ./a.out`.
+
+## Future scope
+
+- IoT soil moisture sensors instead of the simulated timer
+- Disease detection from leaf photos
+- Mobile app for scanning QR codes
 
 ## References
 
-* T. H. Cormen et al., *Introduction to Algorithms*, 3rd ed., MIT Press — Ch. 6 (Heaps), Ch. 11 (Hash Tables), Ch. 22–24 (Graphs, Dijkstra).
-* E. W. Dijkstra, "A note on two problems in connexion with graphs", *Numerische Mathematik* 1, 1959.
-* A. Appleby, MurmurHash3 finaliser (`fmix32`), public domain.
-* IEEE Std 1003.1-2017 (POSIX): pthreads, `getline`, `rename`, `select`.
-* NO_COLOR convention — https://no-color.org
+- Cormen et al., *Introduction to Algorithms* – heaps, hash tables, Dijkstra
+- GeeksforGeeks – Dijkstra's algorithm (adjacency list), separate chaining
+- POSIX threads man pages (`pthread_create`, `pthread_mutex_lock`)

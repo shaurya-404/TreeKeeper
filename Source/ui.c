@@ -1,260 +1,152 @@
-/**
- * @file ui.c
- * @brief ANSI escape helpers and the dashboard layout.
- */
-#include "ui.h"
-
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+#include <string.h>
+#include "ui.h"
 
-#define DASH_QUEUE_ROWS 8
-#define DASH_TASK_ROWS  5
-#define DASH_LEADERS    3
-#define DASH_WIDTH      78
+#define DASHBOARD_ROWS 5
 
-static bool g_ansi = false;
-
-static const char *const STYLE_CODES[UI_STYLE_COUNT] = {
-    [UI_RESET]   = "\033[0m",
-    [UI_BOLD]    = "\033[1m",
-    [UI_DIM]     = "\033[2m",
-    [UI_RED]     = "\033[31m",
-    [UI_GREEN]   = "\033[32m",
-    [UI_YELLOW]  = "\033[33m",
-    [UI_BLUE]    = "\033[34m",
-    [UI_MAGENTA] = "\033[35m",
-    [UI_CYAN]    = "\033[36m",
-    [UI_INVERSE] = "\033[7m",
-};
-
-void ui_init(bool force_no_color)
+void clearScreen(void)
 {
-    const char *no_color = getenv("NO_COLOR");
-    g_ansi = !force_no_color && isatty(STDOUT_FILENO) &&
-             (no_color == NULL || no_color[0] == '\0');
+    printf("\033[2J\033[H");
 }
 
-bool ui_ansi_enabled(void)
+const char *statusColor(Tree *t)
 {
-    return g_ansi;
+    if (t->diseased)
+        return MAGENTA;
+    if (t->water < 30)
+        return RED;
+    if (t->water < 60)
+        return YELLOW;
+    return GREEN;
 }
 
-const char *ui_style(UiStyle style)
+// prints a bar like [#######---] for the water level
+static void printWaterBar(Tree *t)
 {
-    if (!g_ansi || (unsigned)style >= UI_STYLE_COUNT) {
-        return "";
-    }
-    return STYLE_CODES[style];
+    int filled = (int)(t->water / 10 + 0.5);
+    printf("%s[", statusColor(t));
+    for (int i = 0; i < 10; i++)
+        printf(i < filled ? "#" : "-");
+    printf("] %5.1f%%" RESET, t->water);
 }
 
-UiStyle ui_status_style(TreeStatus status)
+void printTableHeader(void)
 {
-    switch (status) {
-    case TREE_HEALTHY:  return UI_GREEN;
-    case TREE_THIRSTY:  return UI_YELLOW;
-    case TREE_CRITICAL: return UI_RED;
-    case TREE_WILTED:   return UI_RED;
-    case TREE_DISEASED: return UI_MAGENTA;
-    default:            return UI_RESET;
-    }
+    printf(BOLD "  %-5s %-9s %-21s %-19s %-8s %-9s %s\n" RESET,
+           "ID", "Species", "Zone", "Water", "Hrs left", "Status", "Assigned");
 }
 
-void ui_water_bar(StrBuf *sb, double percent)
+void printTreeRow(System *sys, Tree *t)
 {
-    /* Unicode blocks on a terminal, plain ASCII when piped to a file. */
-    const char *full = g_ansi ? "█" : "#";
-    const char *empty = g_ansi ? "░" : ".";
-    int cells = (int)lround(percent / 10.0);
-    if (cells < 0) cells = 0;
-    if (cells > 10) cells = 10;
-    for (int i = 0; i < 10; i++) {
-        strbuf_append(sb, i < cells ? full : empty);
-    }
+    Volunteer *v = findVolunteer(sys->vols, t->assignedTo);
+
+    printf("  %-5d %-9s %-21s ", t->id, t->species, sys->map->zones[t->zone].name);
+    printWaterBar(t);
+    printf(" %7.1f  %s%-9s" RESET " %s\n", hoursLeft(t), statusColor(t), getStatus(t),
+           v != NULL ? v->name : "-");
 }
 
-void ui_format_clock(char *buf, size_t cap, double hours)
+void showDashboard(System *sys)
 {
-    if (buf == NULL || cap == 0) {
-        return;
-    }
-    long total_minutes = (long)floor(hours * 60.0);
-    long day = total_minutes / (24 * 60) + 1;
-    long hour = (total_minutes / 60) % 24;
-    long minute = total_minutes % 60;
-    snprintf(buf, cap, "Day %ld %02ld:%02ld", day, hour, minute);
-}
+    pthread_mutex_lock(&sys->lock);
 
-void ui_clear_screen(StrBuf *sb)
-{
-    if (g_ansi) {
-        strbuf_append(sb, "\033[H\033[2J");
-    }
-}
+    int day = (int)(sys->simHours / 24) + 1;
+    int hour = (int)sys->simHours % 24;
 
-void ui_cursor_visible(bool visible)
-{
-    if (g_ansi) {
-        fputs(visible ? "\033[?25h" : "\033[?25l", stdout);
-        fflush(stdout);
-    }
-}
+    printf(BOLD GREEN "\n=============== TREEKEEPER DASHBOARD ===============\n" RESET);
+    printf("  Time: Day %d, %02d:00   Speed: %.1f hrs/sec   %s\n", day, hour, sys->speed,
+           sys->paused ? YELLOW "[PAUSED]" RESET : GREEN "[RUNNING]" RESET);
 
-/* ---- Dashboard sections ---- */
-
-static void rule(StrBuf *sb)
-{
-    strbuf_append(sb, ui_style(UI_DIM));
-    for (int i = 0; i < DASH_WIDTH; i++) {
-        strbuf_append(sb, g_ansi ? "─" : "-");
-    }
-    strbuf_printf(sb, "%s\n", ui_style(UI_RESET));
-}
-
-static void section_title(StrBuf *sb, const char *title, const char *subtitle)
-{
-    strbuf_printf(sb, " %s%s%s%s %s%s%s\n", ui_style(UI_BOLD), ui_style(UI_CYAN), title,
-                  ui_style(UI_RESET), ui_style(UI_DIM), subtitle, ui_style(UI_RESET));
-}
-
-static void render_header(AppContext *app, StrBuf *sb)
-{
-    char clock[32];
-    ui_format_clock(clock, sizeof clock, registry_clock(app->registry));
-    bool paused = simulator_is_paused(app->sim);
-
-    strbuf_printf(sb, "%s%s  TREEKEEPER  %s %s%-48s%s %s%s%s\n",
-                  ui_style(UI_INVERSE), ui_style(UI_GREEN), ui_style(UI_RESET),
-                  ui_style(UI_BOLD), "Afforestation & Volunteer Scheduling",
-                  ui_style(UI_RESET), ui_style(UI_BOLD), clock, ui_style(UI_RESET));
-
-    strbuf_printf(sb, " Simulation %s%s%s  x%.2f h/s   Zones %zu   Paths %zu   Volunteers %zu\n",
-                  ui_style(paused ? UI_YELLOW : UI_GREEN),
-                  paused ? "PAUSED " : "RUNNING", ui_style(UI_RESET),
-                  simulator_speed(app->sim), graph_zone_count(app->graph),
-                  graph_path_count(app->graph), roster_count(app->roster));
-}
-
-static void render_health(const RegistryStats *stats, StrBuf *sb)
-{
-    strbuf_printf(sb, " %sTrees %zu%s  ", ui_style(UI_BOLD), stats->total, ui_style(UI_RESET));
-    for (int s = 0; s < TREE_STATUS_COUNT; s++) {
-        strbuf_printf(sb, " %s%s %zu%s", ui_style(ui_status_style((TreeStatus)s)),
-                      tree_status_name((TreeStatus)s), stats->by_status[s], ui_style(UI_RESET));
-    }
-    strbuf_printf(sb, "\n Queue    %zu waiting, %zu in progress\n", stats->queued, stats->assigned);
-
-    size_t danger = stats->by_status[TREE_CRITICAL] + stats->by_status[TREE_WILTED];
-    if (danger > 0) {
-        strbuf_printf(sb, " %s%s! ALERT: %zu tree(s) critical or wilted - run 'assign <volunteer>'%s\n",
-                      ui_style(UI_BOLD), ui_style(UI_RED), danger, ui_style(UI_RESET));
-    }
-}
-
-/* One table row; shared by the queue and the in-progress list. */
-static void render_tree_row(AppContext *app, StrBuf *sb, const TreeInfo *t, size_t rank)
-{
-    const char *zone = graph_zone_name(app->graph, t->zone_id);
-    if (rank > 0) {
-        strbuf_printf(sb, " %2zu ", rank);
-    } else {
-        strbuf_append(sb, "    ");
-    }
-    strbuf_printf(sb, "%5u  %-9s %-21.21s ", (unsigned)t->id, species_name(t->species),
-                  zone != NULL ? zone : "?");
-    strbuf_append(sb, ui_style(ui_status_style(t->status)));
-    ui_water_bar(sb, t->water_level);
-    strbuf_printf(sb, " %5.1f%%%s", t->water_level, ui_style(UI_RESET));
-
-    if (t->hours_to_dry > 0.0) {
-        strbuf_printf(sb, " %6.1fh", t->hours_to_dry);
-    } else {
-        strbuf_printf(sb, " %7s", "DRY");
-    }
-    strbuf_printf(sb, "  %s%-8s%s", ui_style(ui_status_style(t->status)),
-                  tree_status_name(t->status), ui_style(UI_RESET));
-
-    if (t->assigned_volunteer >= 0) {
-        const char *who = roster_name(app->roster, t->assigned_volunteer);
-        strbuf_printf(sb, " -> %s", who != NULL ? who : "?");
-    }
-    strbuf_append(sb, "\n");
-}
-
-static void render_queue(AppContext *app, StrBuf *sb)
-{
-    section_title(sb, "URGENT WATERING QUEUE", "(min-heap, earliest dry-out first)");
-    strbuf_printf(sb, "%s  #    ID  Species   Zone                  Water              Dry in  Status%s\n",
-                  ui_style(UI_DIM), ui_style(UI_RESET));
-
-    TreeInfo rows[DASH_QUEUE_ROWS];
-    size_t n = 0;
-    if (registry_most_urgent(app->registry, DASH_QUEUE_ROWS, rows, &n) != TK_OK || n == 0) {
-        strbuf_append(sb, "    (queue empty - every tree is cared for)\n");
-        return;
-    }
-    for (size_t i = 0; i < n; i++) {
-        render_tree_row(app, sb, &rows[i], i + 1);
-    }
-}
-
-static void render_tasks(AppContext *app, StrBuf *sb, size_t assigned)
-{
-    if (assigned == 0) {
-        return;
-    }
-    rule(sb);
-    section_title(sb, "TASKS IN PROGRESS", "(scan with 'water <id>' when done)");
-
-    TreeInfo *all = NULL;
-    size_t n = 0;
-    if (registry_snapshot(app->registry, &all, &n) != TK_OK) {
-        return;
-    }
-    size_t shown = 0;
-    for (size_t i = 0; i < n && shown < DASH_TASK_ROWS; i++) {
-        if (all[i].assigned_volunteer >= 0) {
-            render_tree_row(app, sb, &all[i], 0);
-            shown++;
-        }
-    }
-    if (assigned > shown) {
-        strbuf_printf(sb, "    ... and %zu more\n", assigned - shown);
+    // count trees by status
+    int n, healthy = 0, thirsty = 0, critical = 0, wilted = 0, diseased = 0, assigned = 0;
+    Tree **all = getAllTrees(sys->trees, &n);
+    for (int i = 0; i < n; i++) {
+        const char *s = getStatus(all[i]);
+        if (strcmp(s, "HEALTHY") == 0) healthy++;
+        else if (strcmp(s, "THIRSTY") == 0) thirsty++;
+        else if (strcmp(s, "CRITICAL") == 0) critical++;
+        else if (strcmp(s, "WILTED") == 0) wilted++;
+        else diseased++;
+        if (all[i]->assignedTo != -1)
+            assigned++;
     }
     free(all);
+
+    printf("  Trees: %d   " GREEN "Healthy %d  " YELLOW "Thirsty %d  " RED "Critical %d  Wilted %d  "
+           MAGENTA "Diseased %d" RESET "\n", n, healthy, thirsty, critical, wilted, diseased);
+    printf("  Waiting in queue: %d   Assigned to volunteers: %d\n", sys->heap->size, assigned);
+    if (critical + wilted > 0)
+        printf(RED BOLD "  ALERT: %d tree(s) need water urgently!\n" RESET, critical + wilted);
+
+    // show the most urgent trees without changing the real heap:
+    // copy the heap array into a temporary heap and extract from the copy
+    printf(BOLD CYAN "\n  Most urgent trees (from min heap):\n" RESET);
+    if (sys->heap->size == 0) {
+        printf("  Queue is empty.\n");
+    } else {
+        MinHeap *copy = createHeap(sys->heap->size);
+        if (copy != NULL) {
+            for (int i = 0; i < sys->heap->size; i++)
+                copy->arr[i] = sys->heap->arr[i];
+            copy->size = sys->heap->size;
+
+            printTableHeader();
+            for (int i = 0; i < DASHBOARD_ROWS && copy->size > 0; i++)
+                printTreeRow(sys, extractMin(copy));
+            freeHeap(copy);
+        }
+    }
+
+    // extracting from the copy changed the trees' heapIndex values,
+    // so set them back to their positions in the real heap
+    for (int i = 0; i < sys->heap->size; i++)
+        sys->heap->arr[i]->heapIndex = i;
+
+    printf(BOLD CYAN "\n  Volunteer leaderboard:\n" RESET);
+    printLeaderboard(sys->vols);
+    printf(BOLD GREEN "====================================================\n" RESET);
+
+    pthread_mutex_unlock(&sys->lock);
 }
 
-static void render_leaderboard(AppContext *app, StrBuf *sb)
+// reads one line and converts it to an int, returns 0 if input is invalid
+int readInt(const char *prompt, int *value)
 {
-    VolunteerInfo top[DASH_LEADERS];
-    size_t n = roster_leaderboard(app->roster, DASH_LEADERS, top);
-    strbuf_printf(sb, " %s%sLEADERBOARD%s ", ui_style(UI_BOLD), ui_style(UI_CYAN), ui_style(UI_RESET));
-    if (n == 0) {
-        strbuf_append(sb, " (no volunteers yet)");
-    }
-    for (size_t i = 0; i < n; i++) {
-        strbuf_printf(sb, "  %zu. %s%s%s (%u)", i + 1, ui_style(UI_BOLD), top[i].name,
-                      ui_style(UI_RESET), top[i].tasks_completed);
-    }
-    strbuf_append(sb, "\n");
+    char line[100];
+    char extra;
+    printf("%s", prompt);
+    if (fgets(line, sizeof(line), stdin) == NULL)
+        return 0;
+    return sscanf(line, "%d %c", value, &extra) == 1;
 }
 
-void ui_render_dashboard(AppContext *app, StrBuf *sb)
+int readFloat(const char *prompt, float *value)
 {
-    if (app == NULL || sb == NULL) {
-        return;
-    }
-    RegistryStats stats;
-    registry_stats(app->registry, &stats);
+    char line[100];
+    char extra;
+    printf("%s", prompt);
+    if (fgets(line, sizeof(line), stdin) == NULL)
+        return 0;
+    return sscanf(line, "%f %c", value, &extra) == 1;
+}
 
-    render_header(app, sb);
-    rule(sb);
-    render_health(&stats, sb);
-    rule(sb);
-    render_queue(app, sb);
-    render_tasks(app, sb, stats.assigned);
-    rule(sb);
-    render_leaderboard(app, sb);
-    rule(sb);
+// reads one word (no spaces or commas, because those would break the CSV files)
+int readString(const char *prompt, char *buf, int size)
+{
+    char line[100];
+    printf("%s", prompt);
+    if (fgets(line, sizeof(line), stdin) == NULL)
+        return 0;
+    line[strcspn(line, "\r\n")] = '\0';
+
+    int len = strlen(line);
+    if (len == 0 || len >= size)
+        return 0;
+    for (int i = 0; i < len; i++) {
+        if (line[i] == ' ' || line[i] == ',')
+            return 0;
+    }
+    strcpy(buf, line);
+    return 1;
 }
