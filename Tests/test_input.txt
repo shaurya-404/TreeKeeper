@@ -4,10 +4,27 @@ Main_Gate
 Orion
 2
 Oak
+n
 2
 Neem
 Library
 40
+2
+Teak
+4
+55
+2
+Coconut
+y
+2.5
+New Garden
+y
+70
+18
+Casuarina
+1.9
+8
+CSE Block
 4
 1014
 14

@@ -16,26 +16,28 @@ Run `make` once, then `./a.out`. The dashboard is shown first, followed by the m
 | No. | Option | What to enter |
 |---|---|---|
 | 1 | Dashboard | – |
-| 2 | Plant a tree | species, zone name, water level (0–100). You get a tree ID back for the QR code |
+| 2 | Plant a tree | species, zone (ID or name), water level (0–100). You get a tree ID back for the QR code. If the species or zone does not exist yet, you are asked whether to add it |
 | 3 | Water a tree (QR) | tree ID. Water goes back to 100% and the assigned volunteer gets credit |
 | 4 | Search tree by ID | tree ID |
 | 5 | Mark diseased/healthy | tree ID, then 1 (diseased) or 0 (healthy) |
 | 6 | Remove a tree | tree ID |
 | 7 | Show all trees | – |
-| 8 | Add a zone | zone name (no spaces) |
-| 9 | Add a path | two zone names and the distance in metres |
+| 8 | Add a zone | zone name (cannot be only a number) |
+| 9 | Add a path | two zones (ID or name) and the distance in metres |
 | 10 | Show campus map | – |
-| 11 | Shortest route | two zone names |
-| 12 | Add volunteer | name and starting zone |
+| 11 | Shortest route | two zones (ID or name) |
+| 12 | Add volunteer | name and starting zone (ID or name) |
 | 13 | Show volunteers | – |
 | 14 | Assign urgent trees | volunteer ID and number of trees. Shows the walking route |
 | 15 | Pause/resume timer | – |
 | 16 | Change speed | simulated hours per real second |
 | 17 | Save now | – |
+| 18 | Add plant species | species name and how much water it loses per hour (%) |
 | 0 | Save and exit | – |
 
-Species: Neem, Banyan, Peepal, Mango, Teak, Bamboo, Gulmohar, Arjuna.
-Names must not contain spaces or commas (use `_`, for example `Main_Gate`).
+Built-in species: Neem, Banyan, Peepal, Mango, Teak, Bamboo, Gulmohar, Arjuna. New species added with option 18 (or while planting) are saved in `species.csv`.
+
+Zones can be entered by their ID (the number shown in option 10 or in the zone list) or by name. Names are not case sensitive. Spaces in names are changed to `_` (typing `main gate` gives `Main_Gate`). Commas are not allowed.
 
 ## Data
 

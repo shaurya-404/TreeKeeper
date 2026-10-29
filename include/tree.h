@@ -2,6 +2,13 @@
 #define TREE_H
 
 #define NAME_LEN 30
+#define MAX_SPECIES 50
+
+// a type of plant and how fast it loses water
+typedef struct {
+    char name[NAME_LEN];
+    float dryRate;           // percent of water lost every hour
+} Species;
 
 // one planted sapling
 typedef struct {
@@ -17,6 +24,9 @@ typedef struct {
 
 // species functions
 float getDryRate(const char *species);
+int addSpecies(const char *name, float dryRate);
+int getSpeciesCount(void);
+Species *getSpecies(int i);
 void printSpeciesList(void);
 
 // tree functions

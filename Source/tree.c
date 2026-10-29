@@ -4,37 +4,71 @@
 #include <strings.h>
 #include "tree.h"
 
-#define NUM_SPECIES 8
-
 // species names and how fast each one loses water (% per hour)
-static const char *speciesNames[NUM_SPECIES] = {
-    "Neem", "Banyan", "Peepal", "Mango", "Teak", "Bamboo", "Gulmohar", "Arjuna"
+// the first 8 are built in, more can be added from the menu
+static Species speciesList[MAX_SPECIES] = {
+    {"Neem", 1.2}, {"Banyan", 1.6}, {"Peepal", 1.5}, {"Mango", 2.2},
+    {"Teak", 1.8}, {"Bamboo", 2.8}, {"Gulmohar", 2.0}, {"Arjuna", 1.7}
 };
-static const float speciesDryRate[NUM_SPECIES] = {
-    1.2, 1.6, 1.5, 2.2, 1.8, 2.8, 2.0, 1.7
-};
+static int speciesCount = 8;
+
+// returns the position of a species in the list, or -1 if not found
+static int findSpecies(const char *species)
+{
+    for (int i = 0; i < speciesCount; i++) {
+        if (strcasecmp(species, speciesList[i].name) == 0)
+            return i;
+    }
+    return -1;
+}
 
 // returns the dry rate of a species, or -1 if the species is not known
 float getDryRate(const char *species)
 {
-    for (int i = 0; i < NUM_SPECIES; i++) {
-        if (strcasecmp(species, speciesNames[i]) == 0)
-            return speciesDryRate[i];
-    }
-    return -1;
+    int i = findSpecies(species);
+    if (i == -1)
+        return -1;
+    return speciesList[i].dryRate;
+}
+
+// returns 1 if added, 0 if the species already exists, the list is full
+// or the dry rate is not valid
+int addSpecies(const char *name, float dryRate)
+{
+    if (getDryRate(name) >= 0 || speciesCount == MAX_SPECIES)
+        return 0;
+    if (dryRate <= 0 || dryRate > 100 || strlen(name) >= NAME_LEN)
+        return 0;
+
+    strcpy(speciesList[speciesCount].name, name);
+    speciesList[speciesCount].dryRate = dryRate;
+    speciesCount++;
+    return 1;
+}
+
+int getSpeciesCount(void)
+{
+    return speciesCount;
+}
+
+Species *getSpecies(int i)
+{
+    if (i < 0 || i >= speciesCount)
+        return NULL;
+    return &speciesList[i];
 }
 
 void printSpeciesList(void)
 {
     printf("Available species:\n");
-    for (int i = 0; i < NUM_SPECIES; i++)
-        printf("  %-10s (loses %.1f%% water per hour)\n", speciesNames[i], speciesDryRate[i]);
+    for (int i = 0; i < speciesCount; i++)
+        printf("  %-10s (loses %.1f%% water per hour)\n", speciesList[i].name, speciesList[i].dryRate);
 }
 
 Tree *createTree(int id, const char *species, int zone, float water)
 {
-    float rate = getDryRate(species);
-    if (rate < 0)
+    int s = findSpecies(species);
+    if (s == -1)
         return NULL;
 
     Tree *t = malloc(sizeof(Tree));
@@ -42,11 +76,10 @@ Tree *createTree(int id, const char *species, int zone, float water)
         return NULL;
 
     t->id = id;
-    strncpy(t->species, species, NAME_LEN - 1);
-    t->species[NAME_LEN - 1] = '\0';
+    strcpy(t->species, speciesList[s].name);   // use the name as written in the list
     t->zone = zone;
     t->water = water;
-    t->dryRate = rate;
+    t->dryRate = speciesList[s].dryRate;
     t->diseased = 0;
     t->assignedTo = -1;
     t->heapIndex = -1;

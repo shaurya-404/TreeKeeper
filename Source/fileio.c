@@ -6,6 +6,7 @@
 
 // data is stored as CSV files inside one folder:
 //   settings.csv    simHours,nextTreeId,nextVolunteerId,speed
+//   species.csv     name,dryRate
 //   zones.csv       name                    (line number = zone index)
 //   paths.csv       zoneA,zoneB,distance
 //   trees.csv       id,species,zone,water,diseased,assignedTo
@@ -27,20 +28,25 @@ int saveData(System *sys, const char *folder)
     FILE *fp = openFile(folder, "paths.csv", "w");
     FILE *ft = openFile(folder, "trees.csv", "w");
     FILE *fv = openFile(folder, "volunteers.csv", "w");
+    FILE *fsp = openFile(folder, "species.csv", "w");
 
-    if (!fs || !fz || !fp || !ft || !fv) {
+    if (!fs || !fz || !fp || !ft || !fv || !fsp) {
         printf("Error: could not open files in '%s' for saving.\n", folder);
         if (fs) fclose(fs);
         if (fz) fclose(fz);
         if (fp) fclose(fp);
         if (ft) fclose(ft);
         if (fv) fclose(fv);
+        if (fsp) fclose(fsp);
         return 0;
     }
 
     pthread_mutex_lock(&sys->lock);
 
     fprintf(fs, "%.2f,%d,%d,%.2f\n", sys->simHours, sys->nextTreeId, sys->nextVolunteerId, sys->speed);
+
+    for (int i = 0; i < getSpeciesCount(); i++)
+        fprintf(fsp, "%s,%.2f\n", getSpecies(i)->name, getSpecies(i)->dryRate);
 
     for (int i = 0; i < sys->map->count; i++) {
         fprintf(fz, "%s\n", sys->map->zones[i].name);
@@ -70,6 +76,7 @@ int saveData(System *sys, const char *folder)
     fclose(fp);
     fclose(ft);
     fclose(fv);
+    fclose(fsp);
     return 1;
 }
 
@@ -104,6 +111,22 @@ int loadData(System *sys, const char *folder)
         if (fscanf(fs, "%f,%d,%d,%f", &sys->simHours, &sys->nextTreeId, &sys->nextVolunteerId, &sys->speed) != 4)
             skipped++;
         fclose(fs);
+    }
+
+    // species must be loaded before the trees, otherwise trees of a new species are skipped
+    FILE *fsp = openFile(folder, "species.csv", "r");
+    if (fsp != NULL) {
+        char name[NAME_LEN];
+        float rate;
+        while (fgets(line, sizeof(line), fsp)) {
+            if (sscanf(line, "%29[^,],%f", name, &rate) != 2) {
+                skipped++;
+                continue;
+            }
+            if (getDryRate(name) < 0 && !addSpecies(name, rate))   // built in species are already there
+                skipped++;
+        }
+        fclose(fsp);
     }
 
     FILE *fp = openFile(folder, "paths.csv", "r");

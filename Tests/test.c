@@ -1,6 +1,7 @@
 // Test program for the data structures (run with: make test)
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "treekeeper.h"
 
 int passed = 0, failed = 0;
@@ -14,6 +15,21 @@ void check(int condition, const char *name)
         printf("  FAIL  %s\n", name);
         failed++;
     }
+}
+
+void testSpecies(void)
+{
+    printf("\nSpecies tests:\n");
+    check(getDryRate("neem") == getDryRate("Neem"), "species name is not case sensitive");
+    check(getDryRate("Coconut") < 0, "unknown species");
+    check(addSpecies("Coconut", 2.5) == 1, "add new species");
+    check(addSpecies("coconut", 1.0) == 0, "duplicate species rejected");
+    check(addSpecies("Jamun", 0) == 0, "zero dry rate rejected");
+
+    Tree *t = createTree(1, "COCONUT", 0, 50);
+    check(t != NULL && strcmp(t->species, "Coconut") == 0 && t->dryRate == 2.5f,
+          "tree of new species uses the name from the list");
+    free(t);
 }
 
 void testHashMap(void)
@@ -128,6 +144,20 @@ void testFiles(void)
     check(b.nextTreeId == a.nextTreeId, "next tree id restored");
     check(hashSearch(b.trees, 1005) != NULL, "tree 1005 found after load");
 
+    // tree of an added species is saved and loaded back
+    Tree *t = createTree(a.nextTreeId, "Coconut", 0, 70);
+    hashInsert(a.trees, t);
+    heapInsert(a.heap, t);
+    a.nextTreeId++;
+    System c = {0};
+    c.trees = createHashMap(8); c.heap = createHeap(8); c.map = createGraph(4); c.vols = createVolunteerList(2);
+    pthread_mutex_init(&c.lock, NULL);
+    saveData(&a, "object/test_data");
+    loadData(&c, "object/test_data");
+    check(hashSearch(c.trees, t->id) != NULL, "tree of added species loaded back");
+    freeHeap(c.heap); freeHashMap(c.trees); freeGraph(c.map); freeVolunteerList(c.vols);
+    pthread_mutex_destroy(&c.lock);
+
     freeHeap(a.heap); freeHashMap(a.trees); freeGraph(a.map); freeVolunteerList(a.vols);
     freeHeap(b.heap); freeHashMap(b.trees); freeGraph(b.map); freeVolunteerList(b.vols);
     pthread_mutex_destroy(&a.lock);
@@ -136,6 +166,7 @@ void testFiles(void)
 
 int main(void)
 {
+    testSpecies();
     testHashMap();
     testHeap();
     testGraph();

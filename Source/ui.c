@@ -131,7 +131,8 @@ int readFloat(const char *prompt, float *value)
     return sscanf(line, "%f %c", value, &extra) == 1;
 }
 
-// reads one word (no spaces or commas, because those would break the CSV files)
+// reads one word. Spaces inside the word are changed to '_' (so "Main Gate"
+// becomes "Main_Gate"). Commas are not allowed because they would break the CSV files.
 int readString(const char *prompt, char *buf, int size)
 {
     char line[100];
@@ -140,13 +141,22 @@ int readString(const char *prompt, char *buf, int size)
         return 0;
     line[strcspn(line, "\r\n")] = '\0';
 
-    int len = strlen(line);
+    // skip spaces at the start and remove spaces at the end
+    char *word = line;
+    while (*word == ' ' || *word == '\t')
+        word++;
+    int len = strlen(word);
+    while (len > 0 && (word[len - 1] == ' ' || word[len - 1] == '\t'))
+        word[--len] = '\0';
+
     if (len == 0 || len >= size)
         return 0;
     for (int i = 0; i < len; i++) {
-        if (line[i] == ' ' || line[i] == ',')
+        if (word[i] == ',')
             return 0;
+        if (word[i] == ' ' || word[i] == '\t')
+            word[i] = '_';
     }
-    strcpy(buf, line);
+    strcpy(buf, word);
     return 1;
 }

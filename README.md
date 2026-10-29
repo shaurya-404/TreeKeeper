@@ -58,7 +58,7 @@ data/             saved data (created when the program exits)
 
 | File | What it does |
 |---|---|
-| `tree.c` | Tree struct, species list, status of a tree |
+| `tree.c` | Tree struct, species list (8 built in, more can be added), status of a tree |
 | `hashmap.c` | Hash map (separate chaining) to find a tree by ID |
 | `heap.c` | Min heap to find the most urgent tree |
 | `graph.c` | Campus graph (adjacency list), Dijkstra, route planning |
@@ -95,6 +95,7 @@ data/             saved data (created when the program exits)
 | File | Format |
 |---|---|
 | `settings.csv` | simHours,nextTreeId,nextVolunteerId,speed |
+| `species.csv` | name,dryRate |
 | `zones.csv` | one zone name per line |
 | `paths.csv` | zoneA,zoneB,distance |
 | `trees.csv` | id,species,zone,water,diseased,assignedTo |
@@ -104,7 +105,7 @@ Lines that cannot be read (wrong format, zone that does not exist, water outside
 
 ## Testing
 
-`make test` runs `Tests/test.c` (29 test cases). It covers inserting, searching and deleting in the hash map (including rehashing and duplicate IDs), heap insert/update/remove/extract order, Dijkstra on a small graph (including an unreachable zone and a removed path), and saving data and loading it back.
+`make test` runs `Tests/test.c` (36 test cases). It covers adding species, inserting, searching and deleting in the hash map (including rehashing and duplicate IDs), heap insert/update/remove/extract order, Dijkstra on a small graph (including an unreachable zone and a removed path), and saving data and loading it back.
 
 `./a.out < Tests/test_input.txt` runs a full session from the menu. It includes wrong inputs such as an unknown species, an unknown zone, a missing tree ID and text instead of a number.
 
