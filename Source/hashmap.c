@@ -1,267 +1,155 @@
-/**
- * @file hashmap.c
- * @brief Linear-probing hash map with tombstones and dynamic resizing.
- */
+#include <stdio.h>
+#include <stdlib.h>
 #include "hashmap.h"
 
-#include <stdlib.h>
-#include <string.h>
-
-#define HASHMAP_MIN_CAPACITY 8u
-/* Resize when (count + tombstones) / capacity would exceed 7/10. */
-#define HASHMAP_LOAD_NUM 7u
-#define HASHMAP_LOAD_DEN 10u
-
-typedef enum {
-    SLOT_EMPTY = 0, /* never used: terminates a probe sequence          */
-    SLOT_OCCUPIED,  /* holds a live key/value pair                      */
-    SLOT_TOMBSTONE  /* was deleted: probing must continue past it       */
-} SlotState;
-
-typedef struct {
-    uint32_t  key;
-    SlotState state;
-    void     *value;
-} Slot;
-
-struct HashMap {
-    Slot  *slots;
-    size_t capacity;   /* always a power of two */
-    size_t count;      /* live entries          */
-    size_t tombstones; /* deleted entries       */
-};
-
-/*
- * MurmurHash3 32-bit finaliser. Sequential tree IDs (1001, 1002, ...)
- * would cluster badly with "key % cap"; this mixes every input bit into
- * every output bit so the table stays evenly filled.
- */
-static uint32_t hash_key(uint32_t x)
+static int hashFunction(int key, int size)
 {
-    x ^= x >> 16;
-    x *= 0x85ebca6bu;
-    x ^= x >> 13;
-    x *= 0xc2b2ae35u;
-    x ^= x >> 16;
-    return x;
+    if (key < 0)
+        key = -key;
+    return key % size;
 }
 
-/* Smallest power of two >= requested (and >= the minimum), or 0 on overflow. */
-static size_t capacity_for(size_t requested)
+HashMap *createHashMap(int size)
 {
-    size_t cap = HASHMAP_MIN_CAPACITY;
-    while (cap < requested) {
-        if (cap > (SIZE_MAX / sizeof(Slot)) / 2) {
-            return 0;
-        }
-        cap <<= 1;
-    }
-    return cap;
-}
-
-/* Returns the index of the slot holding @p key, or SIZE_MAX if absent. */
-static size_t find_existing(const HashMap *map, uint32_t key)
-{
-    size_t mask = map->capacity - 1;
-    size_t i = hash_key(key) & mask;
-
-    for (size_t probes = 0; probes < map->capacity; probes++) {
-        const Slot *slot = &map->slots[i];
-        if (slot->state == SLOT_EMPTY) {
-            return SIZE_MAX;
-        }
-        if (slot->state == SLOT_OCCUPIED && slot->key == key) {
-            return i;
-        }
-        i = (i + 1) & mask;
-    }
-    return SIZE_MAX;
-}
-
-/*
- * Returns the first non-occupied slot on @p key's probe sequence.
- * Precondition: the key is not present and the table has a free slot.
- */
-static size_t find_free(const Slot *slots, size_t capacity, uint32_t key)
-{
-    size_t mask = capacity - 1;
-    size_t i = hash_key(key) & mask;
-    while (slots[i].state == SLOT_OCCUPIED) {
-        i = (i + 1) & mask;
-    }
-    return i;
-}
-
-/* Moves every live entry into a fresh table, discarding tombstones. */
-static TkStatus rehash(HashMap *map, size_t new_capacity)
-{
-    Slot *fresh = calloc(new_capacity, sizeof *fresh);
-    if (fresh == NULL) {
-        return TK_ERR_NOMEM;
-    }
-    for (size_t i = 0; i < map->capacity; i++) {
-        if (map->slots[i].state == SLOT_OCCUPIED) {
-            size_t j = find_free(fresh, new_capacity, map->slots[i].key);
-            fresh[j] = map->slots[i];
-        }
-    }
-    free(map->slots);
-    map->slots = fresh;
-    map->capacity = new_capacity;
-    map->tombstones = 0;
-    return TK_OK;
-}
-
-HashMap *hashmap_create(size_t expected)
-{
-    /* Size the table so @p expected entries stay under the load limit. */
-    size_t wanted = (expected / HASHMAP_LOAD_NUM + 1) * HASHMAP_LOAD_DEN;
-    size_t capacity = capacity_for(wanted);
-    if (capacity == 0) {
+    HashMap *map = malloc(sizeof(HashMap));
+    if (map == NULL)
         return NULL;
-    }
 
-    HashMap *map = malloc(sizeof *map);
-    if (map == NULL) {
-        return NULL;
-    }
-    map->slots = calloc(capacity, sizeof *map->slots);
-    if (map->slots == NULL) {
+    map->buckets = calloc(size, sizeof(Node *));
+    if (map->buckets == NULL) {
         free(map);
         return NULL;
     }
-    map->capacity = capacity;
+    map->size = size;
     map->count = 0;
-    map->tombstones = 0;
     return map;
 }
 
-void hashmap_destroy(HashMap *map)
+// doubles the number of buckets and moves every node to its new bucket
+static int rehash(HashMap *map)
 {
-    if (map == NULL) {
-        return;
+    int newSize = map->size * 2;
+    Node **newBuckets = calloc(newSize, sizeof(Node *));
+    if (newBuckets == NULL)
+        return 0;
+
+    for (int i = 0; i < map->size; i++) {
+        Node *curr = map->buckets[i];
+        while (curr != NULL) {
+            Node *next = curr->next;
+            int index = hashFunction(curr->key, newSize);
+            curr->next = newBuckets[index];
+            newBuckets[index] = curr;
+            curr = next;
+        }
     }
-    free(map->slots);
-    free(map);
+    free(map->buckets);
+    map->buckets = newBuckets;
+    map->size = newSize;
+    return 1;
 }
 
-TkStatus hashmap_put(HashMap *map, uint32_t key, void *value)
+// returns 1 on success, 0 if id already exists or malloc fails
+int hashInsert(HashMap *map, Tree *t)
 {
-    if (map == NULL) {
-        return TK_ERR_INVALID;
+    if (map == NULL || t == NULL)
+        return 0;
+    if (hashSearch(map, t->id) != NULL)
+        return 0;
+
+    // keep the load factor below 0.75 so chains stay short
+    if (map->count + 1 > map->size * 3 / 4) {
+        if (!rehash(map))
+            return 0;
     }
 
-    /* Replacing an existing key: no allocation, cannot fail. */
-    size_t idx = find_existing(map, key);
-    if (idx != SIZE_MAX) {
-        map->slots[idx].value = value;
-        return TK_OK;
-    }
+    Node *node = malloc(sizeof(Node));
+    if (node == NULL)
+        return 0;
 
-    /* New key: grow (or just purge tombstones) before crossing 70% load. */
-    size_t used_after = map->count + map->tombstones + 1;
-    if (used_after * HASHMAP_LOAD_DEN > map->capacity * HASHMAP_LOAD_NUM) {
-        size_t new_capacity = map->capacity;
-        /* Double only if live entries alone would be over half the limit. */
-        if ((map->count + 1) * HASHMAP_LOAD_DEN * 2 > map->capacity * HASHMAP_LOAD_NUM) {
-            new_capacity = capacity_for(map->capacity * 2);
-            if (new_capacity == 0) {
-                return TK_ERR_NOMEM;
-            }
-        }
-        TkStatus st = rehash(map, new_capacity);
-        if (st != TK_OK) {
-            return st;
-        }
-    }
-
-    idx = find_free(map->slots, map->capacity, key);
-    if (map->slots[idx].state == SLOT_TOMBSTONE) {
-        map->tombstones--;
-    }
-    map->slots[idx].key = key;
-    map->slots[idx].value = value;
-    map->slots[idx].state = SLOT_OCCUPIED;
+    int index = hashFunction(t->id, map->size);
+    node->key = t->id;
+    node->tree = t;
+    node->next = map->buckets[index];   // insert at head of the chain
+    map->buckets[index] = node;
     map->count++;
-    return TK_OK;
+    return 1;
 }
 
-bool hashmap_lookup(const HashMap *map, uint32_t key, void **out)
+// O(1) on average
+Tree *hashSearch(HashMap *map, int key)
 {
-    if (map == NULL) {
-        return false;
+    if (map == NULL)
+        return NULL;
+
+    Node *curr = map->buckets[hashFunction(key, map->size)];
+    while (curr != NULL) {
+        if (curr->key == key)
+            return curr->tree;
+        curr = curr->next;
     }
-    size_t idx = find_existing(map, key);
-    if (idx == SIZE_MAX) {
-        return false;
-    }
-    if (out != NULL) {
-        *out = map->slots[idx].value;
-    }
-    return true;
+    return NULL;
 }
 
-void *hashmap_get(const HashMap *map, uint32_t key)
+// removes the node (does not free the tree), returns 1 if found
+int hashDelete(HashMap *map, int key)
 {
-    void *value = NULL;
-    return hashmap_lookup(map, key, &value) ? value : NULL;
-}
+    if (map == NULL)
+        return 0;
 
-bool hashmap_contains(const HashMap *map, uint32_t key)
-{
-    return hashmap_lookup(map, key, NULL);
-}
+    int index = hashFunction(key, map->size);
+    Node *curr = map->buckets[index];
+    Node *prev = NULL;
 
-TkStatus hashmap_remove(HashMap *map, uint32_t key, void **old)
-{
-    if (map == NULL) {
-        return TK_ERR_INVALID;
+    while (curr != NULL) {
+        if (curr->key == key) {
+            if (prev == NULL)
+                map->buckets[index] = curr->next;
+            else
+                prev->next = curr->next;
+            free(curr);
+            map->count--;
+            return 1;
+        }
+        prev = curr;
+        curr = curr->next;
     }
-    size_t idx = find_existing(map, key);
-    if (idx == SIZE_MAX) {
-        return TK_ERR_NOT_FOUND;
-    }
-    if (old != NULL) {
-        *old = map->slots[idx].value;
-    }
-    map->slots[idx].state = SLOT_TOMBSTONE;
-    map->slots[idx].value = NULL;
-    map->count--;
-    map->tombstones++;
-    return TK_OK;
+    return 0;
 }
 
-size_t hashmap_size(const HashMap *map)
+// returns a malloc'd array with every tree (caller must free the array)
+Tree **getAllTrees(HashMap *map, int *n)
 {
-    return (map == NULL) ? 0 : map->count;
+    *n = 0;
+    if (map == NULL || map->count == 0)
+        return NULL;
+
+    Tree **list = malloc(map->count * sizeof(Tree *));
+    if (list == NULL)
+        return NULL;
+
+    for (int i = 0; i < map->size; i++) {
+        for (Node *curr = map->buckets[i]; curr != NULL; curr = curr->next)
+            list[(*n)++] = curr->tree;
+    }
+    return list;
 }
 
-void hashmap_foreach(const HashMap *map, HashMapVisitor visit, void *ctx)
+// frees all nodes and also the trees stored in them
+void freeHashMap(HashMap *map)
 {
-    if (map == NULL || visit == NULL) {
+    if (map == NULL)
         return;
-    }
-    for (size_t i = 0; i < map->capacity; i++) {
-        const Slot *slot = &map->slots[i];
-        if (slot->state == SLOT_OCCUPIED && !visit(slot->key, slot->value, ctx)) {
-            return;
+
+    for (int i = 0; i < map->size; i++) {
+        Node *curr = map->buckets[i];
+        while (curr != NULL) {
+            Node *next = curr->next;
+            free(curr->tree);
+            free(curr);
+            curr = next;
         }
     }
-}
-
-void hashmap_clear(HashMap *map, void (*free_value)(void *))
-{
-    if (map == NULL) {
-        return;
-    }
-    if (free_value != NULL) {
-        for (size_t i = 0; i < map->capacity; i++) {
-            if (map->slots[i].state == SLOT_OCCUPIED) {
-                free_value(map->slots[i].value);
-            }
-        }
-    }
-    memset(map->slots, 0, map->capacity * sizeof *map->slots);
-    map->count = 0;
-    map->tombstones = 0;
+    free(map->buckets);
+    free(map);
 }
