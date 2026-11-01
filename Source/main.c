@@ -154,22 +154,39 @@ static void newSpecies(void)
 // volunteer scans the QR code (tree ID) after watering
 static void waterTree(System *sys)
 {
+    char input[NAME_LEN];
+
+    if (sys->vols->count == 0) {
+        printf(RED "Add a volunteer first (option 12).\n" RESET);
+        return;
+    }
     Tree *t = askTree(sys);
     if (t == NULL)
         return;
+
+    printLeaderboard(sys->vols);
+    if (!readString("Watered by (volunteer ID or name): ", input, NAME_LEN)) {
+        printf(RED "Invalid input.\n" RESET);
+        return;
+    }
+    Volunteer *v;
+    if (isNumber(input))
+        v = findVolunteer(sys->vols, atoi(input));
+    else
+        v = findVolunteerByName(sys->vols, input);
+    if (v == NULL) {
+        printf(RED "No volunteer '%s'.\n" RESET, input);
+        return;
+    }
 
     pthread_mutex_lock(&sys->lock);
     if (t->water >= 100) {
         printf(YELLOW "Tree %d is already fully watered (100.0%%).\n" RESET, t->id);
     } else {
         t->water = 100;
-        Volunteer *v = findVolunteer(sys->vols, t->assignedTo);
-        if (v != NULL) {
-            v->tasksDone++;
-            printf(GREEN "Tree %d watered by %s.\n" RESET, t->id, v->name);
-        } else {
-            printf(GREEN "Tree %d watered.\n" RESET, t->id);
-        }
+        v->tasksDone++;
+        printf(GREEN "Tree %d watered by %s. %s has watered %d tree(s).\n" RESET,
+               t->id, v->name, v->name, v->tasksDone);
     }
 
     // task is done, so the tree goes back in the queue with its new priority
@@ -179,6 +196,8 @@ static void waterTree(System *sys)
     else
         heapUpdate(sys->heap, t);
     pthread_mutex_unlock(&sys->lock);
+
+    saveData(sys, DATA_FOLDER);   // so the count is not lost if the program is closed
 }
 
 static void searchTree(System *sys)

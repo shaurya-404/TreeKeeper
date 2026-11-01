@@ -20,6 +20,7 @@ typedef struct {
 VolunteerList *createVolunteerList(int capacity);
 int addVolunteer(VolunteerList *vl, int id, const char *name, int zone, int tasksDone);
 Volunteer *findVolunteer(VolunteerList *vl, int id);
+Volunteer *findVolunteerByName(VolunteerList *vl, const char *name);
 void printLeaderboard(VolunteerList *vl);
 void freeVolunteerList(VolunteerList *vl);
 

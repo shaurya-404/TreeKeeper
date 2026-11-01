@@ -19,7 +19,7 @@ The first time the campus is empty. Add a few zones (8), connect them with paths
 |---|---|---|
 | 1 | Dashboard | – |
 | 2 | Plant a tree | species, zone (ID or name), water level (0–100). You get a tree ID back for the QR code. If the species or zone does not exist yet, you are asked whether to add it |
-| 3 | Water a tree (QR) | tree ID. Water goes back to 100% and the assigned volunteer gets credit |
+| 3 | Water a tree (QR) | tree ID, then the ID or name of the volunteer who watered it. Water goes back to 100%, that volunteer's count goes up and the data is saved |
 | 4 | Search tree by ID | tree ID |
 | 5 | Mark diseased/healthy | tree ID, then 1 (diseased) or 0 (healthy) |
 | 6 | Remove a tree | tree ID |

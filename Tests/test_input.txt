@@ -65,6 +65,13 @@ Hostel_Zone
 2
 3
 1002
+shaurya
+3
+1001
+Ravi
+3
+1001
+1
 5
 1001
 1

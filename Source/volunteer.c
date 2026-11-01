@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include "volunteer.h"
 
 VolunteerList *createVolunteerList(int capacity)
@@ -45,6 +46,15 @@ Volunteer *findVolunteer(VolunteerList *vl, int id)
 {
     for (int i = 0; i < vl->count; i++) {
         if (vl->list[i].id == id)
+            return &vl->list[i];
+    }
+    return NULL;
+}
+
+Volunteer *findVolunteerByName(VolunteerList *vl, const char *name)
+{
+    for (int i = 0; i < vl->count; i++) {
+        if (strcasecmp(vl->list[i].name, name) == 0)
             return &vl->list[i];
     }
     return NULL;
